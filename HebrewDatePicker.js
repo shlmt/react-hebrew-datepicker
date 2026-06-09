@@ -5,10 +5,12 @@ import { HDate } from "@hebcal/core";
 import './HebrewDatePicker.css';
 import CalendarPopup from "./CalendarPopup";
 
-const HebrewDatePicker = ({ name, value, defaultValue, onChange, required, label = "בחר תאריך", usePortal = false, dir = "rtl" }) => {
+const HebrewDatePicker = ({ name, value, defaultValue, onChange, required, label = "בחר תאריך", usePortal = false, dir = "rtl", isRange = false, valueStart, valueEnd, onChangeRange }) => {
   // Support both controlled and uncontrolled modes
-  const isControlled = value !== undefined;
+  const isControlled = value !== undefined || (isRange && (valueStart !== undefined || valueEnd !== undefined));
   const [internalValue, setInternalValue] = useState(defaultValue || '');
+  const [internalRangeStart, setInternalRangeStart] = useState(null);
+  const [internalRangeEnd, setInternalRangeEnd] = useState(null);
   const currentValue = isControlled ? value : internalValue;
 
   const showDate = currentValue ? new Date(currentValue) : new Date();
@@ -17,15 +19,26 @@ const HebrewDatePicker = ({ name, value, defaultValue, onChange, required, label
   const [currentHDate, setCurrentHDate] = useState(selectedHDate);
   const [showMonthYearPicker, setShowMonthYearPicker] = useState(false);
   const [calendarPos, setCalendarPos] = useState({ top: 0, left: 0 });
+  const [isSelectingEnd, setIsSelectingEnd] = useState(false);
 
   const popupRef = useRef(null);
   const inputRef = useRef();
 
   const [transitionDirection, setTransitionDirection] = useState("forward");
 
+  // Range state
+  const rangeStart = isRange && valueStart ? valueStart : internalRangeStart;
+  const rangeEnd = isRange && valueEnd ? valueEnd : internalRangeEnd;
+
   // Update selectedHDate when value changes (for controlled mode)
   useEffect(() => {
-    if (isControlled && value) {
+    if (isRange) {
+      if (valueStart) {
+        const newDate = new Date(valueStart);
+        const newHDate = new HDate(newDate);
+        setCurrentHDate(newHDate);
+      }
+    } else if (isControlled && value) {
       const newDate = new Date(value);
       const newHDate = new HDate(newDate);
       setCurrentHDate(newHDate);
@@ -34,20 +47,51 @@ const HebrewDatePicker = ({ name, value, defaultValue, onChange, required, label
       const newHDate = new HDate(newDate);
       setCurrentHDate(newHDate);
     }
-  }, [value, internalValue, isControlled]);
+  }, [value, internalValue, isControlled, isRange, valueStart]);
 
   // Internal change handler
   const handleDateChange = (event) => {
     const newValue = event.target.value;
 
-    // Update internal state if uncontrolled
-    if (!isControlled) {
-      setInternalValue(newValue);
-    }
+    if (isRange) {
+      if (!isSelectingEnd && !rangeStart) {
+        // First selection - start date
+        setInternalRangeStart(newValue);
+        setIsSelectingEnd(true);
+      } else if (!isSelectingEnd) {
+        // After start is selected, allow end date selection
+        setIsSelectingEnd(true);
+      } else {
+        // Second selection - end date
+        const start = rangeStart;
+        const end = newValue;
+        // Ensure start is before end
+        const [finalStart, finalEnd] = new Date(start) <= new Date(end) 
+          ? [start, end] 
+          : [end, start];
+        
+        if (!isControlled) {
+          setInternalRangeStart(finalStart);
+          setInternalRangeEnd(finalEnd);
+        }
 
-    // Call external onChange if provided
-    if (onChange) {
-      onChange(event);
+        if (onChangeRange) {
+          onChangeRange({ start: finalStart, end: finalEnd });
+        }
+        
+        setShowCalendar(false);
+        setIsSelectingEnd(false);
+      }
+    } else {
+      // Update internal state if uncontrolled
+      if (!isControlled) {
+        setInternalValue(newValue);
+      }
+
+      // Call external onChange if provided
+      if (onChange) {
+        onChange(event);
+      }
     }
   };
 
@@ -86,8 +130,16 @@ const HebrewDatePicker = ({ name, value, defaultValue, onChange, required, label
           name={name}
           readOnly
           required={required}
-          value={currentValue ? formatHebrewDate(selectedHDate) : ""}
-          placeholder="בחר תאריך עברי"
+          value={isRange ? (
+            rangeStart && rangeEnd 
+              ? `${formatHebrewDate(new HDate(new Date(rangeStart)))} - ${formatHebrewDate(new HDate(new Date(rangeEnd)))}`
+              : rangeStart
+              ? `מ: ${formatHebrewDate(new HDate(new Date(rangeStart)))}${isSelectingEnd ? ' (בחר תאריך סיום)' : ''}`
+              : ''
+          ) : (
+            currentValue ? formatHebrewDate(selectedHDate) : ""
+          )}
+          placeholder={isRange ? "בחר טווח תאריכים" : "בחר תאריך עברי"}
           style={{ padding: 10, borderRadius: 5, border: "1px solid #ccc", width: "100%", backgroundColor: "white", color: "#444", fontWeight: "bold", cursor: "default" }}
           onClick={() => setShowCalendar((v) => !v)}
         />
@@ -114,6 +166,18 @@ const HebrewDatePicker = ({ name, value, defaultValue, onChange, required, label
               transitionDirection={transitionDirection}
               setTransitionDirection={setTransitionDirection}
               name={name}
+              isRange={isRange}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              isSelectingEnd={isSelectingEnd}
+              onClearRange={() => {
+                setInternalRangeStart(null);
+                setInternalRangeEnd(null);
+                setIsSelectingEnd(false);
+                if (onChangeRange) {
+                  onChangeRange({ start: null, end: null });
+                }
+              }}
             />,
             document.body
           )
@@ -131,6 +195,18 @@ const HebrewDatePicker = ({ name, value, defaultValue, onChange, required, label
             transitionDirection={transitionDirection}
             setTransitionDirection={setTransitionDirection}
             name={name}
+            isRange={isRange}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            isSelectingEnd={isSelectingEnd}
+            onClearRange={() => {
+              setInternalRangeStart(null);
+              setInternalRangeEnd(null);
+              setIsSelectingEnd(false);
+              if (onChangeRange) {
+                onChangeRange({ start: null, end: null });
+              }
+            }}
           />
 
       )}

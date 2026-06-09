@@ -56,9 +56,38 @@ const CalendarPopup = ({
     setShowMonthYearPicker,
     transitionDirection,
     setTransitionDirection,
-    name
+    name,
+    isRange = false,
+    rangeStart = null,
+    rangeEnd = null,
+    isSelectingEnd = false,
+    onClearRange = null
 }) => {
     const yearScrollRef = useRef(null);
+
+    // Helper function to check if a date is within the range
+    const isDateInRange = (day, month, year) => {
+        if (!isRange || !rangeStart || !rangeEnd) return false;
+        const hdate = new HDate(day, month, year);
+        const gregDate = hdate.greg();
+        const dateStr = gregDate.toISOString().slice(0, 10);
+        
+        const start = new Date(rangeStart);
+        const end = new Date(rangeEnd);
+        const current = new Date(dateStr);
+        
+        return current >= start && current <= end;
+    };
+
+    // Helper function to check if a date is a range boundary
+    const isDateBoundary = (day, month, year) => {
+        if (!isRange) return false;
+        const hdate = new HDate(day, month, year);
+        const gregDate = hdate.greg();
+        const dateStr = gregDate.toISOString().slice(0, 10);
+        
+        return dateStr === rangeStart || dateStr === rangeEnd;
+    };
 
     // Auto-scroll to current year when year picker opens
     useEffect(() => {
@@ -80,15 +109,6 @@ const CalendarPopup = ({
         Array.from({ length: daysInMonth }, (_, i) => i + 1)
     );
 
-    const handleSelect = (day) => {
-        if (!day) return;
-        const hdate = new HDate(day + 1, currentHDate.getMonth(), currentHDate.getFullYear());
-        const gregDate = hdate.greg();
-        const iso = gregDate.toISOString().slice(0, 10);
-        onChange?.({ target: { name, value: iso } });
-        setShowCalendar(false);
-    };
-
     return (
         <>
             <div style={{ position: "fixed", inset: 0, zIndex: 3000 }} onClick={() => setShowCalendar(false)} />
@@ -109,11 +129,16 @@ const CalendarPopup = ({
             >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, borderBottom: "1px solid #eee" }}>
                     <h3
-                        style={{ margin: 0, fontSize: 16, color: "#4da6ff", cursor: "pointer" }}
-                        onClick={() => setShowMonthYearPicker((prev) => !prev)}
+                        style={{ margin: 0, fontSize: 16, color: "#4da6ff", cursor: isRange ? "default" : "pointer" }}
+                        onClick={() => !isRange && setShowMonthYearPicker((prev) => !prev)}
                     >
+                        {isRange && isSelectingEnd ? (
+                            <span style={{ fontSize: 12, color: "#999", display: "block", marginBottom: 4 }}>בחר תאריך סיום</span>
+                        ) : isRange && rangeStart ? (
+                            <span style={{ fontSize: 12, color: "#999", display: "block", marginBottom: 4 }}>בחר תאריך התחלה</span>
+                        ) : null}
                         {hebrewMonths[currentHDate.getMonth() - 1]} {new HDate(1, currentHDate.getMonth(), currentHDate.getFullYear()).renderGematriya().split(" ").pop()}
-                        <FaCaretDown />
+                        {!isRange && <FaCaretDown />}
                     </h3>
                     <div style={{ display: "flex", gap: 6 }}>
                         <button
@@ -227,27 +252,34 @@ const CalendarPopup = ({
                     ))}
                     {daysArray.map((day, i) => {
                         if (!day) return <div key={i} />;
+                        
                         const isSelected =
                             selectedHDate.getDate() === day &&
                             selectedHDate.getMonth() === currentHDate.getMonth() &&
                             selectedHDate.getFullYear() === currentHDate.getFullYear();
+                        
+                        const isInRange = isDateInRange(day, currentHDate.getMonth(), currentHDate.getFullYear());
+                        const isBoundary = isDateBoundary(day, currentHDate.getMonth(), currentHDate.getFullYear());
+                        
                         return (
                             <button
                                 key={i}
                                 type="button"
-                                onClick={() => handleSelect(day)}
-                                className={`date-picker-day${isSelected ? " selected" : ""}`}
+                                onClick={() => onChange?.({ target: { name, value: new HDate(day, currentHDate.getMonth(), currentHDate.getFullYear()).greg().toISOString().slice(0, 10) } })}
+                                className={`date-picker-day${isBoundary ? " selected" : isInRange ? " in-range" : ""}`}
                                 style={{
                                     minWidth: 36,
                                     minHeight: 36,
-                                    color: isSelected ? '#fff' : '#444',
+                                    color: isBoundary ? '#fff' : isInRange ? '#333' : '#444',
+                                    backgroundColor: isBoundary ? '#4da6ff' : isInRange ? '#e6f2ff' : 'transparent',
                                     borderRadius: 8,
                                     fontSize: 14,
                                     cursor: 'pointer',
                                     padding: 8,
                                     transition: 'border .2s,background .2s,color .2s',
                                     boxSizing: 'border-box',
-                                    margin: 0
+                                    margin: 0,
+                                    border: isBoundary ? '2px solid #4da6ff' : isInRange ? '1px solid #b3d9ff' : 'none'
                                 }}
                             >
                                 {hebrewNumber(day)}
@@ -262,10 +294,18 @@ const CalendarPopup = ({
                         onClick={() => {
                             const today = new HDate();
                             setCurrentHDate(today);
-                            const gregDate = today.greg();
-                            const iso = gregDate.toISOString().slice(0, 10);
-                            onChange?.({ target: { name, value: iso } });
-                            setShowCalendar(false);
+                            if (isRange) {
+                                if (!isSelectingEnd && !rangeStart) {
+                                    const gregDate = today.greg();
+                                    const iso = gregDate.toISOString().slice(0, 10);
+                                    onChange?.({ target: { name, value: iso } });
+                                }
+                            } else {
+                                const gregDate = today.greg();
+                                const iso = gregDate.toISOString().slice(0, 10);
+                                onChange?.({ target: { name, value: iso } });
+                                setShowCalendar(false);
+                            }
                         }}
 
                         style={{
@@ -283,8 +323,14 @@ const CalendarPopup = ({
                     <button
                         type="button"
                         onClick={() => {
-                            onChange?.({ target: { name, value: "" } });
-                            setShowCalendar(false);
+                            if (isRange && onClearRange) {
+                                onClearRange();
+                            } else {
+                                onChange?.({ target: { name, value: "" } });
+                            }
+                            if (!isRange) {
+                                setShowCalendar(false);
+                            }
                         }}
                         style={{
                             fontSize: 14,
@@ -295,7 +341,7 @@ const CalendarPopup = ({
                             textDecoration: "underline",
                         }}
                     >
-                        נקה
+                        {isRange ? "נקה טווח" : "נקה"}
                     </button>
                 </div>
             </div>
